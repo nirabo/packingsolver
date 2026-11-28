@@ -966,7 +966,6 @@ void InstanceBuilder::read_parameters(
             set_waste_cost(std::stoll(value));
         }
     }
-    check_number_of_cutting_costs();
 }
 
 void InstanceBuilder::read_bin_types(
@@ -1300,7 +1299,6 @@ void InstanceBuilder::read(
     }
     if (j.contains("waste_cost"))
         set_waste_cost(j["waste_cost"]);
-    check_number_of_cutting_costs();
 
     // Read bin types.
     for (const auto& json_bin_type: j["bin_types"]) {
@@ -1567,6 +1565,12 @@ void InstanceBuilder::resolve_item_types_unlimited_copies()
 
 Instance InstanceBuilder::build()
 {
+    // The readers check the cutting-cost count; check it here too, so that an
+    // instance built through the API and written with 'Instance::write' can
+    // be read back. For an unlimited number of stages the check returns early,
+    // as it does on the readers.
+    check_number_of_cutting_costs();
+
     // Compute the tolerances of the resources which haven't been set (see
     // 'Resource::tolerance').
     for (BinType& bin_type: instance_.bin_types_)

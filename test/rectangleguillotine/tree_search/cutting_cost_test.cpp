@@ -3,6 +3,10 @@
 
 #include "treesearchsolver/iterative_beam_search_2.hpp"
 
+#include "packingsolver/algorithms/common.hpp"
+
+#include <cstdio>
+#include <fstream>
 #include <gtest/gtest.h>
 
 using namespace packingsolver;
@@ -152,4 +156,68 @@ TEST(RectangleGuillotineBranchingScheme, CuttingCostWasteCost)
     EXPECT_TRUE(solution.full());
     // First bin's waste: (150 * 100) - (100 * 100) = 5000. Cost: 2 * 5000 = 10000.
     EXPECT_EQ(solution.cutting_cost(), 10000);
+}
+
+TEST(RectangleGuillotine, CuttingCostTooManyAtBuild)
+{
+    // 3 stages with exact cuts take 4 cutting costs (bin + 3 cuts). The API
+    // used to accept a fifth one; 'Instance::write' then produced a file the
+    // readers refused.
+    InstanceBuilder instance_builder;
+    instance_builder.set_objective(Objective::BinPackingCuttingCost);
+    instance_builder.set_number_of_stages(3);
+    instance_builder.set_cut_type(CutType::Exact);
+    instance_builder.set_item_type_stack_id(instance_builder.add_item_type(100, 100, false), 0);
+    BinTypeId bin_type_id = instance_builder.add_bin_type(100, 100);
+    instance_builder.set_bin_type_cost(bin_type_id, 1);
+    instance_builder.set_bin_type_copies(bin_type_id, -1);
+    for (Counter stage_id = 0; stage_id <= 4; ++stage_id)
+        instance_builder.set_fixed_cutting_cost(stage_id, 5);
+
+    EXPECT_THROW(instance_builder.build(), std::invalid_argument);
+}
+
+TEST(RectangleGuillotine, CuttingCostRoundTrip)
+{
+    // A valid cutting-cost instance must survive build -> write -> read.
+    InstanceBuilder instance_builder;
+    instance_builder.set_objective(Objective::BinPackingCuttingCost);
+    instance_builder.set_number_of_stages(3);
+    instance_builder.set_cut_type(CutType::Exact);
+    instance_builder.set_item_type_stack_id(instance_builder.add_item_type(100, 100, false), 0);
+    BinTypeId bin_type_id = instance_builder.add_bin_type(100, 100);
+    instance_builder.set_bin_type_cost(bin_type_id, 1);
+    instance_builder.set_bin_type_copies(bin_type_id, -1);
+    instance_builder.set_fixed_cutting_cost(0, 10);
+    instance_builder.set_variable_cutting_cost(0, 1);
+    for (Counter stage_id = 1; stage_id <= 3; ++stage_id) {
+        instance_builder.set_fixed_cutting_cost(stage_id, 5);
+        instance_builder.set_variable_cutting_cost(stage_id, 1);
+    }
+    Instance instance = instance_builder.build();
+
+    const std::string path = ::testing::TempDir()
+        + "packingsolver_rectangleguillotine_cutting_cost_roundtrip.json";
+    instance.write(path, InstanceFormat::Json);
+    InstanceBuilder read_builder;
+    std::ifstream stream(path);
+    ASSERT_TRUE(stream.good());
+    read_builder.read(stream);
+    const Instance read_instance = read_builder.build();
+    std::remove(path.c_str());
+
+    EXPECT_EQ(read_instance.objective(), instance.objective());
+    EXPECT_EQ(read_instance.parameters().number_of_stages, instance.parameters().number_of_stages);
+    EXPECT_EQ(read_instance.parameters().cut_type, instance.parameters().cut_type);
+    ASSERT_EQ(
+            read_instance.parameters().cutting_costs.size(),
+            instance.parameters().cutting_costs.size());
+    for (Counter stage_id = 0; stage_id < (Counter)instance.parameters().cutting_costs.size(); ++stage_id) {
+        EXPECT_EQ(
+                read_instance.parameters().cutting_costs[stage_id].fixed,
+                instance.parameters().cutting_costs[stage_id].fixed);
+        EXPECT_EQ(
+                read_instance.parameters().cutting_costs[stage_id].variable,
+                instance.parameters().cutting_costs[stage_id].variable);
+    }
 }
